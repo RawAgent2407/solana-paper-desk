@@ -1,0 +1,65 @@
+name: record
+# Records PUBLIC read-only market data (DexScreener + RugCheck). No trading, no keys, no secrets.
+# Each run records up to ~5.5h, saves data to the `data` branch, then dispatches the next run
+# until `runs_left` hits 0. To stop early: add a file named STOP to the `data` branch.
+on:
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "minutes to record in this run"
+        default: "335"
+      runs_left:
+        description: "how many more chained runs after this one"
+        default: "11"
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: record
+  cancel-in-progress: false
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    timeout-minutes: 358
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: data
+          path: databranch
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Stop switch
+        id: stop
+        run: |
+          if [ -f databranch/STOP ]; then echo "stop=1" >> "$GITHUB_OUTPUT"; fi
+      - name: Record
+        if: steps.stop.outputs.stop != '1'
+        env:
+          MINUTES: ${{ inputs.minutes }}
+        run: python -m desk.record --minutes "$MINUTES" --max-new 25 --out "rec/rec_${GITHUB_RUN_ID}.jsonl"
+      - name: Save data to data branch
+        if: always()
+        run: |
+          mkdir -p databranch/recordings
+          cp rec/*.jsonl databranch/recordings/ 2>/dev/null || true
+          cd databranch
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add recordings
+          git commit -m "recording ${GITHUB_RUN_ID}" || exit 0
+          for i in 1 2 3; do git pull --rebase origin data && git push origin data && break; sleep 5; done
+      - name: Chain next run
+        if: always() && steps.stop.outputs.stop != '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LEFT: ${{ inputs.runs_left }}
+          MINUTES: ${{ inputs.minutes }}
+        run: |
+          if [ "$LEFT" -gt 0 ]; then
+            gh workflow run record.yml --ref main -f minutes="$MINUTES" -f runs_left="$((LEFT-1))"
+          fi
