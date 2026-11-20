@@ -179,6 +179,14 @@ class Tests(unittest.TestCase):
             zero = ClaudeScorer(budget=0, cache_path=os.path.join(d, "z.json"), runner=lambda p: '{"score":1}')
             self.assertEqual(zero.score(s).source, "formula")  # budget exhausted
 
+    def test_gecko_parse_excludes_majors(self):
+        from desk.live import parse_gecko
+        mk = lambda m: {"relationships": {"base_token": {"data": {"id": "solana_" + m}}}}
+        payload = {"data": [mk("MemeMint1"), mk("So11111111111111111111111111111111111111112"),
+                            mk("MemeMint1"), {"relationships": {}}, mk("MemeMint2")]}
+        self.assertEqual(parse_gecko(payload), ["MemeMint1", "MemeMint2"])
+        self.assertEqual(parse_gecko(None), [])
+
 
 if __name__ == "__main__":
     unittest.main()

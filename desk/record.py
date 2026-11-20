@@ -42,7 +42,7 @@ def main(argv=None):
                 seen.add(addr)
                 if addr in pairs:
                     s = live.build_snapshot(addr, pairs[addr], live.fetch_rug(addr), now)
-                    append(a.out, {"type": "snap", "snap": asdict(s)})
+                    append(a.out, {"type": "snap", "snap": asdict(s), "feed": live.FEED_OF.get(addr, "unknown")})
                     tracked[addr] = now
                     n_snap += 1
             print(f"[{time.strftime('%H:%M:%S')}] snapshots={n_snap} ticks={n_tick} tracking={len(tracked)}", flush=True)

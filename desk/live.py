@@ -11,13 +11,35 @@ RUG = "https://api.rugcheck.xyz/v1/tokens"
 _last = {}
 
 
-def _get(url, min_gap=1.0):
+FEED_OF = {}   # token address -> which feed discovered it (recorded for later analysis)
+GECKO = "https://api.geckoterminal.com/api/v2/networks/solana"
+MAJORS = {"So11111111111111111111111111111111111111112",    # wrapped SOL
+          "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",    # USDC
+          "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"}    # USDT
+
+
+def parse_gecko(payload):
+    """Base-token mints from a GeckoTerminal pools response, excluding SOL/stablecoins."""
+    out = []
+    for r in (payload or {}).get("data", []):
+        try:
+            tid = r["relationships"]["base_token"]["data"]["id"]
+        except (KeyError, TypeError):
+            continue
+        mint = tid.split("_", 1)[-1]
+        if mint and mint not in MAJORS and mint not in out:
+            out.append(mint)
+    return out
+
+
+def _get(url, min_gap=1.0, headers=None):
     host = url.split("/")[2]
     wait = min_gap - (time.time() - _last.get(host, 0))
     if wait > 0:
         time.sleep(wait)
     _last[host] = time.time()
-    req = urllib.request.Request(url, headers={"User-Agent": "paper-desk/1.0", "Accept": "application/json"})
+    req = urllib.request.Request(url, headers={"User-Agent": "paper-desk/1.0", "Accept": "application/json",
+                                               **(headers or {})})
     try:
         with urllib.request.urlopen(req, timeout=15) as r:
             return json.load(r)
@@ -28,10 +50,19 @@ def _get(url, min_gap=1.0):
 def fetch_candidates():
     """New profiles + boosted tokens (boosts are PAID promotion: treat as hype, not evidence)."""
     out = []
+    # 1) trending pools (already ranked by activity => far more likely to pass volume/liquidity filters)
+    hdr = {"Accept": "application/json;version=20230302"}
+    for page in (1, 2):
+        for a in parse_gecko(_get(f"{GECKO}/trending_pools?page={page}", 2.2, hdr)):
+            if a not in out:
+                out.append(a)
+                FEED_OF[a] = "gecko_trending"
+    # 2) new profiles + boosted tokens
     for path in ("token-profiles/latest/v1", "token-boosts/top/v1", "token-boosts/latest/v1"):
         for x in _get(f"{DEX}/{path}", 1.1) or []:
             if x.get("chainId") == "solana" and x["tokenAddress"] not in out:
                 out.append(x["tokenAddress"])
+                FEED_OF[x["tokenAddress"]] = "dex_new_or_boosted"
     return out
 
 

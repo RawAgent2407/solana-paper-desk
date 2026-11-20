@@ -31,7 +31,7 @@ def load_recording(path):
             j = json.loads(line)
             if j["type"] == "snap":
                 snaps[j["snap"]["pool_id"]] = Snapshot(**j["snap"])
-            else:
+            elif j["type"] == "tick":
                 ticks[j["addr"]].append(j)
     events = []
     for addr, s in snaps.items():
